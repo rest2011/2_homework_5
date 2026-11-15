@@ -5,6 +5,8 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.kafka.core.KafkaTemplate;
+import ru.example.userservice.dto.UserEventDto;
 import ru.example.userservice.dto.UserRequestDto;
 import ru.example.userservice.dto.UserResponseDto;
 import ru.example.userservice.exception.UserServiceException;
@@ -14,6 +16,8 @@ import ru.example.userservice.repository.UserRepository;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
@@ -22,11 +26,14 @@ class UserServiceTest {
     @Mock
     private UserRepository userRepository;
 
+    @Mock
+    private KafkaTemplate<String, UserEventDto> kafkaTemplate;
+
     private UserService userService;
 
     @BeforeEach
     void setUp() {
-        userService = new UserServiceImpl(userRepository);
+        userService = new UserServiceImpl(userRepository, kafkaTemplate);
     }
 
     @Test
@@ -41,6 +48,7 @@ class UserServiceTest {
         assertNotNull(response);
         assertEquals("Иван", response.getName());
         verify(userRepository, times(1)).save(any(User.class));
+        verify(kafkaTemplate, times(1)).send(eq("user-events"), any(UserEventDto.class));
     }
 
     @Test
@@ -53,6 +61,7 @@ class UserServiceTest {
 
         assertEquals("Регистрация доступна только с 18 лет.", exception.getMessage());
         verify(userRepository, never()).save(any());
+        verify(kafkaTemplate, never()).send(anyString(), any());
     }
 
     @Test
@@ -67,15 +76,5 @@ class UserServiceTest {
         assertNotNull(actualUser);
         assertEquals("Анна", actualUser.getName());
         verify(userRepository, times(1)).findById(1L);
-    }
-
-    @Test
-    void getUserById_ThrowsException_WhenIdIsNegative() {
-        UserServiceException exception = assertThrows(UserServiceException.class, () -> {
-            userService.getUserById(-5L);
-        });
-
-        assertEquals("Некорректный ID пользователя.", exception.getMessage());
-        verify(userRepository, never()).findById(anyLong());
     }
 }

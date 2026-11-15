@@ -1,7 +1,9 @@
 package ru.example.userservice.service;
 
+import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import ru.example.userservice.dto.UserEventDto;
 import ru.example.userservice.dto.UserRequestDto;
 import ru.example.userservice.dto.UserResponseDto;
 import ru.example.userservice.exception.UserServiceException;
@@ -16,9 +18,12 @@ import java.util.stream.Collectors;
 public class UserServiceImpl implements UserService {
 
     private final UserRepository userRepository;
+    private final KafkaTemplate<String, UserEventDto> kafkaTemplate;
+    private static final String TOPIC = "user-events";
 
-    public UserServiceImpl(UserRepository userRepository) {
+    public UserServiceImpl(UserRepository userRepository, KafkaTemplate<String, UserEventDto> kafkaTemplate) {
         this.userRepository = userRepository;
+        this.kafkaTemplate = kafkaTemplate;
     }
 
     @Override
@@ -32,6 +37,10 @@ public class UserServiceImpl implements UserService {
         }
         User user = new User(dto.getName(), dto.getEmail(), dto.getAge());
         User savedUser = userRepository.save(user);
+
+        // Отправляем событие о создании в Kafka
+        kafkaTemplate.send(TOPIC, new UserEventDto(savedUser.getEmail(), "CREATE"));
+
         return mapToResponseDto(savedUser);
     }
 
@@ -68,10 +77,13 @@ public class UserServiceImpl implements UserService {
     @Override
     @Transactional
     public void deleteUser(Long id) {
-        if (!userRepository.existsById(id)) {
-            throw new UserServiceException("Не удалось удалить пользователя из-за внутренней ошибки БД.", null);
-        }
-        userRepository.deleteById(id);
+        User user = userRepository.findById(id)
+                .orElseThrow(() -> new UserServiceException("Не удалось удалить пользователя из-за внутренней ошибки БД.", null));
+
+        userRepository.delete(user);
+
+        // Отправляем событие об удалении в Kafka
+        kafkaTemplate.send(TOPIC, new UserEventDto(user.getEmail(), "DELETE"));
     }
 
     private UserResponseDto mapToResponseDto(User user) {
